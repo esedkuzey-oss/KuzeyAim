@@ -1,0 +1,1100 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- Configuration
+local TixSettings = {
+    Sticky = true,
+    WallCheck = false,
+    TeamCheck = false,
+    ESP = false,
+    RainbowStyle = false,
+    FOV = 90,
+    CircleVis = true,
+    MaxDistance = 750,
+    AimKey = Enum.UserInputType.MouseButton2,
+    AimMode = "Hold",
+    Friends = {},  -- { ["username"] = true, ... }
+    HitboxSize = 0,
+    HitboxEnabled = false,
+    Closest = false,
+    NameTags = true
+}
+
+local PrimaryRed = Color3.fromRGB(255, 0, 0)
+local DarkGreyBlack = Color3.fromRGB(15, 15, 17)
+local OffText = Color3.fromRGB(160, 160, 160)
+local DarkBtn = Color3.fromRGB(25, 25, 27)
+local GreenColor = Color3.fromRGB(0, 255, 100)
+local DragBlue = Color3.fromRGB(30, 80, 180)
+
+local function getRainbow()
+    return Color3.fromHSV(tick() % 5 / 5, 0.7, 1)
+end
+
+local Circle = Drawing.new("Circle")
+Circle.Visible = TixSettings.CircleVis
+Circle.Thickness = 2
+Circle.NumSides = 64
+Circle.Radius = TixSettings.FOV
+Circle.Filled = false
+
+local visualCache = {}
+local hitboxParts = {}
+
+local TixUI = Instance.new("ScreenGui")
+TixUI.Name = "KUZEY_AIM_V1"
+TixUI.Parent = gethui and gethui() or game:GetService("CoreGui")
+TixUI.ResetOnSpawn = false
+
+-- Toggle Icon
+local TogglePanel = Instance.new("Frame", TixUI)
+TogglePanel.Size = UDim2.new(0, 45, 0, 45)
+TogglePanel.Position = UDim2.new(0, 20, 0, 20)
+TogglePanel.BackgroundColor3 = DarkGreyBlack
+TogglePanel.Active = true
+Instance.new("UICorner", TogglePanel)
+local ToggleStroke = Instance.new("UIStroke", TogglePanel)
+ToggleStroke.Thickness = 2
+ToggleStroke.Color = PrimaryRed
+
+local ToggleBtn = Instance.new("TextButton", TogglePanel)
+ToggleBtn.Size = UDim2.new(1, 0, 1, 0)
+ToggleBtn.BackgroundTransparency = 1
+ToggleBtn.Text = "K"
+ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.TextColor3 = PrimaryRed
+ToggleBtn.TextSize = 18
+
+-- MAIN FRAME
+local Main = Instance.new("Frame", TixUI)
+local VisiblePos = UDim2.new(0.5, -200, 0.5, -280)
+local HiddenPos = UDim2.new(0.5, -200, 1.2, 0)
+Main.Size = UDim2.new(0, 400, 0, 600)
+Main.Position = HiddenPos
+Main.BackgroundColor3 = DarkGreyBlack
+Main.Visible = false
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
+
+local MainStroke = Instance.new("UIStroke", Main)
+MainStroke.Thickness = 2
+MainStroke.Color = PrimaryRed
+
+-- Drag Bar
+local DragBar = Instance.new("Frame", Main)
+DragBar.Size = UDim2.new(1, 0, 0, 30)
+DragBar.Position = UDim2.new(0, 0, 0, 0)
+DragBar.BackgroundColor3 = DragBlue
+DragBar.BorderSizePixel = 0
+DragBar.Active = true
+Instance.new("UICorner", DragBar).CornerRadius = UDim.new(0, 10)
+
+local dragging = false
+local dragStart = Vector2.new()
+local startPos = UDim2.new()
+
+DragBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = Main.Position
+        DragBar.BackgroundColor3 = Color3.fromRGB(50, 120, 220)
+    end
+end)
+
+DragBar.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+        DragBar.BackgroundColor3 = DragBlue
+    end
+end)
+
+DragBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement and dragging then
+        local delta = input.Position - dragStart
+        Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+local Title = Instance.new("TextLabel", DragBar)
+Title.Size = UDim2.new(1, -40, 1, 0)
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.Text = "KUZEY AIM"
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 18
+Title.BackgroundTransparency = 1
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextXAlignment = Enum.TextXAlignment.Left
+
+local CloseBtn = Instance.new("TextButton", DragBar)
+CloseBtn.Size = UDim2.new(0, 25, 0, 25)
+CloseBtn.Position = UDim2.new(1, -30, 0, 2.5)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.Text = "×"
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.TextSize = 20
+
+ToggleBtn.MouseButton1Click:Connect(function()
+    Main.Visible = true
+    TogglePanel.Visible = false
+    Main:TweenPosition(VisiblePos, "Out", "Quart", 0.5, true)
+end)
+
+CloseBtn.MouseButton1Click:Connect(function()
+    Main:TweenPosition(HiddenPos, "In", "Quart", 0.4, true, function()
+        Main.Visible = false
+        TogglePanel.Visible = true
+    end)
+end)
+
+-- SCROLL
+local Scroll = Instance.new("ScrollingFrame", Main)
+Scroll.Size = UDim2.new(1, -20, 1, -40)
+Scroll.Position = UDim2.new(0, 10, 0, 35)
+Scroll.BackgroundTransparency = 1
+Scroll.CanvasSize = UDim2.new(0, 0, 4.5, 0)
+Scroll.ScrollBarThickness = 2
+Scroll.ScrollBarImageColor3 = PrimaryRed
+
+local UIList = Instance.new("UIListLayout", Scroll)
+UIList.Padding = UDim.new(0, 6)
+
+local function AddToggle(text, settingKey, parent)
+    local target = parent or Scroll
+    
+    local btn = Instance.new("TextButton", target)
+    btn.Size = UDim2.new(1, -5, 0, 42)
+    btn.BackgroundColor3 = DarkBtn
+    btn.Text = ""
+    btn.AutoButtonColor = false
+    Instance.new("UICorner", btn)
+
+    local BStroke = Instance.new("UIStroke", btn)
+    BStroke.Thickness = 1
+    BStroke.Color = PrimaryRed
+    BStroke.Transparency = 0.8
+
+    local Label = Instance.new("TextLabel", btn)
+    Label.Size = UDim2.new(1, -60, 1, 0)
+    Label.Position = UDim2.new(0, 15, 0, 0)
+    Label.BackgroundTransparency = 1
+    Label.Text = text
+    Label.Font = Enum.Font.GothamBold
+    Label.TextColor3 = PrimaryRed
+    Label.TextSize = 14
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local Status = Instance.new("TextLabel", btn)
+    Status.Size = UDim2.new(0, 40, 1, 0)
+    Status.Position = UDim2.new(1, -55, 0, 0)
+    Status.BackgroundTransparency = 1
+    Status.Text = TixSettings[settingKey] and "ON" or "OFF"
+    Status.Font = Enum.Font.GothamBold
+    Status.TextColor3 = TixSettings[settingKey] and PrimaryRed or OffText
+    Status.TextSize = 13
+    Status.TextXAlignment = Enum.TextXAlignment.Right
+
+    btn.MouseButton1Click:Connect(function()
+        TixSettings[settingKey] = not TixSettings[settingKey]
+        local s = TixSettings[settingKey]
+        local targetColor = s and Color3.fromRGB(45, 10, 10) or DarkBtn
+        TweenService:Create(btn, TweenInfo.new(0.3), {BackgroundColor3 = targetColor}):Play()
+        Status.Text = s and "ON" or "OFF"
+        Status.TextColor3 = s and PrimaryRed or OffText
+        if settingKey == "CircleVis" then Circle.Visible = s end
+    end)
+    
+    if TixSettings[settingKey] then
+        btn.BackgroundColor3 = Color3.fromRGB(45, 10, 10)
+    end
+    
+    return btn
+end
+
+local function AddSlider(text, settingKey, min, max, default, parent)
+    local target = parent or Scroll
+    
+    local frame = Instance.new("Frame", target)
+    frame.Size = UDim2.new(1, -5, 0, 55)
+    frame.BackgroundColor3 = DarkBtn
+    Instance.new("UICorner", frame)
+
+    local label = Instance.new("TextLabel", frame)
+    label.Size = UDim2.new(1, 0, 0, 20)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.Font = Enum.Font.GothamBold
+    label.TextColor3 = PrimaryRed
+    label.TextSize = 14
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Position = UDim2.new(0, 10, 0, 0)
+
+    local valueLabel = Instance.new("TextLabel", frame)
+    valueLabel.Size = UDim2.new(0, 50, 0, 20)
+    valueLabel.Position = UDim2.new(1, -60, 0, 0)
+    valueLabel.BackgroundTransparency = 1
+    valueLabel.Text = tostring(default)
+    valueLabel.Font = Enum.Font.GothamBold
+    valueLabel.TextColor3 = PrimaryRed
+    valueLabel.TextSize = 14
+    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+
+    local slider = Instance.new("Frame", frame)
+    slider.Size = UDim2.new(0.9, 0, 0, 6)
+    slider.Position = UDim2.new(0.05, 0, 0, 35)
+    slider.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+    Instance.new("UICorner", slider).CornerRadius = UDim.new(1, 0)
+
+    local fill = Instance.new("Frame", slider)
+    fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+    fill.BackgroundColor3 = PrimaryRed
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+    local sliderDragging = false
+    local function update(input)
+        local pos = (input.Position.X - slider.AbsolutePosition.X) / slider.AbsoluteSize.X
+        pos = math.clamp(pos, 0, 1)
+        local val = min + (max - min) * pos
+        val = math.floor(val + 0.5)
+        val = math.clamp(val, min, max)
+        TixSettings[settingKey] = val
+        valueLabel.Text = tostring(val)
+        fill.Size = UDim2.new((val - min) / (max - min), 0, 1, 0)
+    end
+
+    slider.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            sliderDragging = true
+            update(input)
+        end
+    end)
+
+    slider.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            sliderDragging = false
+        end
+    end)
+
+    slider.InputChanged:Connect(function(input)
+        if sliderDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            update(input)
+        end
+    end)
+
+    return frame
+end
+
+-- Max Distance slider (1-1000 arası)
+local function AddDistanceSlider(parent)
+    local target = parent or Scroll
+    
+    local frame = Instance.new("Frame", target)
+    frame.Size = UDim2.new(1, -5, 0, 55)
+    frame.BackgroundColor3 = DarkBtn
+    Instance.new("UICorner", frame)
+
+    local label = Instance.new("TextLabel", frame)
+    label.Size = UDim2.new(1, 0, 0, 20)
+    label.BackgroundTransparency = 1
+    label.Text = "Max Distance"
+    label.Font = Enum.Font.GothamBold
+    label.TextColor3 = PrimaryRed
+    label.TextSize = 14
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Position = UDim2.new(0, 10, 0, 0)
+
+    local valueLabel = Instance.new("TextLabel", frame)
+    valueLabel.Size = UDim2.new(0, 50, 0, 20)
+    valueLabel.Position = UDim2.new(1, -60, 0, 0)
+    valueLabel.BackgroundTransparency = 1
+    valueLabel.Text = tostring(TixSettings.MaxDistance)
+    valueLabel.Font = Enum.Font.GothamBold
+    valueLabel.TextColor3 = PrimaryRed
+    valueLabel.TextSize = 14
+    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+
+    local slider = Instance.new("Frame", frame)
+    slider.Size = UDim2.new(0.9, 0, 0, 6)
+    slider.Position = UDim2.new(0.05, 0, 0, 35)
+    slider.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+    Instance.new("UICorner", slider).CornerRadius = UDim.new(1, 0)
+
+    local minVal, maxVal = 1, 1000
+    local fill = Instance.new("Frame", slider)
+    fill.Size = UDim2.new((TixSettings.MaxDistance - minVal) / (maxVal - minVal), 0, 1, 0)
+    fill.BackgroundColor3 = PrimaryRed
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+    local sliderDragging = false
+    local function update(input)
+        local pos = (input.Position.X - slider.AbsolutePosition.X) / slider.AbsoluteSize.X
+        pos = math.clamp(pos, 0, 1)
+        local val = minVal + (maxVal - minVal) * pos
+        val = math.floor(val + 0.5)
+        val = math.clamp(val, minVal, maxVal)
+        TixSettings.MaxDistance = val
+        valueLabel.Text = tostring(val)
+        fill.Size = UDim2.new((val - minVal) / (maxVal - minVal), 0, 1, 0)
+    end
+
+    slider.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            sliderDragging = true
+            update(input)
+        end
+    end)
+
+    slider.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            sliderDragging = false
+        end
+    end)
+
+    slider.InputChanged:Connect(function(input)
+        if sliderDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            update(input)
+        end
+    end)
+
+    return frame
+end
+
+local function AddKeybind(text, settingKey, parent)
+    local target = parent or Scroll
+    
+    local frame = Instance.new("Frame", target)
+    frame.Size = UDim2.new(1, -5, 0, 42)
+    frame.BackgroundColor3 = DarkBtn
+    Instance.new("UICorner", frame)
+
+    local label = Instance.new("TextLabel", frame)
+    label.Size = UDim2.new(0.6, -10, 1, 0)
+    label.Position = UDim2.new(0, 15, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.Font = Enum.Font.GothamBold
+    label.TextColor3 = PrimaryRed
+    label.TextSize = 14
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local keyBtn = Instance.new("TextButton", frame)
+    keyBtn.Size = UDim2.new(0, 100, 0, 30)
+    keyBtn.Position = UDim2.new(1, -110, 0.5, -15)
+    keyBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+    keyBtn.Text = tostring(TixSettings[settingKey]):gsub("Enum.KeyCode.", ""):gsub("Enum.UserInputType.", "")
+    keyBtn.Font = Enum.Font.GothamBold
+    keyBtn.TextColor3 = PrimaryRed
+    keyBtn.TextSize = 12
+    Instance.new("UICorner", keyBtn)
+
+    local waiting = false
+    keyBtn.MouseButton1Click:Connect(function()
+        waiting = true
+        keyBtn.Text = "..."
+    end)
+
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if waiting and not gameProcessed then
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or
+               input.UserInputType == Enum.UserInputType.MouseButton2 or
+               input.UserInputType == Enum.UserInputType.MouseButton3 then
+                TixSettings[settingKey] = input.UserInputType
+                keyBtn.Text = tostring(input.UserInputType):gsub("Enum.UserInputType.", "")
+                waiting = false
+            elseif input.KeyCode ~= Enum.KeyCode.Unknown then
+                TixSettings[settingKey] = input.KeyCode
+                keyBtn.Text = tostring(input.KeyCode):gsub("Enum.KeyCode.", "")
+                waiting = false
+            end
+        end
+    end)
+
+    return frame
+end
+
+local function AddDropdown(text, settingKey, options, parent)
+    local target = parent or Scroll
+    
+    local frame = Instance.new("Frame", target)
+    frame.Size = UDim2.new(1, -5, 0, 42)
+    frame.BackgroundColor3 = DarkBtn
+    Instance.new("UICorner", frame)
+
+    local label = Instance.new("TextLabel", frame)
+    label.Size = UDim2.new(0.6, -10, 1, 0)
+    label.Position = UDim2.new(0, 15, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.Font = Enum.Font.GothamBold
+    label.TextColor3 = PrimaryRed
+    label.TextSize = 14
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local modeBtn = Instance.new("TextButton", frame)
+    modeBtn.Size = UDim2.new(0, 80, 0, 30)
+    modeBtn.Position = UDim2.new(1, -90, 0.5, -15)
+    modeBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+    modeBtn.Text = TixSettings[settingKey]
+    modeBtn.Font = Enum.Font.GothamBold
+    modeBtn.TextColor3 = PrimaryRed
+    modeBtn.TextSize = 12
+    Instance.new("UICorner", modeBtn)
+
+    local currentIndex = 1
+    for i, v in ipairs(options) do
+        if v == TixSettings[settingKey] then currentIndex = i; break end
+    end
+
+    modeBtn.MouseButton1Click:Connect(function()
+        currentIndex = currentIndex + 1
+        if currentIndex > #options then currentIndex = 1 end
+        TixSettings[settingKey] = options[currentIndex]
+        modeBtn.Text = options[currentIndex]
+    end)
+
+    return frame
+end
+
+-- ========== ARKADAŞ LİSTESİ (DÜZELTİLMİŞ) ==========
+local friendFrame = Instance.new("Frame", Scroll)
+friendFrame.Size = UDim2.new(1, -5, 0, 200)
+friendFrame.BackgroundColor3 = DarkBtn
+Instance.new("UICorner", friendFrame)
+
+local friendTitle = Instance.new("TextLabel", friendFrame)
+friendTitle.Size = UDim2.new(1, 0, 0, 25)
+friendTitle.Position = UDim2.new(0, 10, 0, 5)
+friendTitle.BackgroundTransparency = 1
+friendTitle.Text = "FRIEND LIST (Max 5)"
+friendTitle.Font = Enum.Font.GothamBold
+friendTitle.TextColor3 = PrimaryRed
+friendTitle.TextSize = 14
+friendTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+local friendListBox = Instance.new("ScrollingFrame", friendFrame)
+friendListBox.Size = UDim2.new(1, -10, 1, -65)
+friendListBox.Position = UDim2.new(0, 5, 0, 35)
+friendListBox.BackgroundTransparency = 1
+friendListBox.CanvasSize = UDim2.new(0, 0, 0, 0)
+friendListBox.ScrollBarThickness = 2
+friendListBox.ScrollBarImageColor3 = PrimaryRed
+
+local friendListLayout = Instance.new("UIListLayout", friendListBox)
+friendListLayout.Padding = UDim.new(0, 3)
+friendListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    friendListBox.CanvasSize = UDim2.new(0, 0, 0, friendListLayout.AbsoluteContentSize.Y + 10)
+end)
+
+local addFriendFrame = Instance.new("Frame", friendFrame)
+addFriendFrame.Size = UDim2.new(1, -10, 0, 25)
+addFriendFrame.Position = UDim2.new(0, 5, 0, 170)
+addFriendFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+Instance.new("UICorner", addFriendFrame)
+
+local friendInput = Instance.new("TextBox", addFriendFrame)
+friendInput.Size = UDim2.new(0.7, -5, 1, 0)
+friendInput.Position = UDim2.new(0, 5, 0, 0)
+friendInput.BackgroundTransparency = 1
+friendInput.PlaceholderText = "Username..."
+friendInput.Font = Enum.Font.GothamBold
+friendInput.TextColor3 = Color3.fromRGB(200, 200, 200)
+friendInput.TextSize = 12
+friendInput.Text = ""
+friendInput.TextXAlignment = Enum.TextXAlignment.Left
+
+local addFriendBtn = Instance.new("TextButton", addFriendFrame)
+addFriendBtn.Size = UDim2.new(0.3, -5, 1, 0)
+addFriendBtn.Position = UDim2.new(0.7, 0, 0, 0)
+addFriendBtn.BackgroundColor3 = Color3.fromRGB(30, 60, 30)
+addFriendBtn.Text = "+"
+addFriendBtn.Font = Enum.Font.GothamBold
+addFriendBtn.TextColor3 = GreenColor
+addFriendBtn.TextSize = 16
+Instance.new("UICorner", addFriendBtn)
+
+local warningLabel = Instance.new("TextLabel", friendFrame)
+warningLabel.Size = UDim2.new(1, -10, 0, 20)
+warningLabel.Position = UDim2.new(0, 5, 0, 145)
+warningLabel.BackgroundTransparency = 1
+warningLabel.Text = ""
+warningLabel.Font = Enum.Font.GothamBold
+warningLabel.TextColor3 = PrimaryRed
+warningLabel.TextSize = 12
+warningLabel.TextXAlignment = Enum.TextXAlignment.Center
+warningLabel.Visible = false
+
+local function refreshFriendList()
+    for _, v in pairs(friendListBox:GetChildren()) do
+        if v:IsA("TextButton") then v:Destroy() end
+    end
+    
+    for username, _ in pairs(TixSettings.Friends) do
+        local friendBtn = Instance.new("TextButton", friendListBox)
+        friendBtn.Size = UDim2.new(1, -5, 0, 25)
+        friendBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+        friendBtn.Text = ""
+        friendBtn.AutoButtonColor = false
+        Instance.new("UICorner", friendBtn)
+        
+        local nameLabel = Instance.new("TextLabel", friendBtn)
+        nameLabel.Size = UDim2.new(0.8, -5, 1, 0)
+        nameLabel.Position = UDim2.new(0, 5, 0, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = username
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextColor3 = GreenColor
+        nameLabel.TextSize = 12
+        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        
+        local removeBtn = Instance.new("TextButton", friendBtn)
+        removeBtn.Size = UDim2.new(0.2, 0, 1, 0)
+        removeBtn.Position = UDim2.new(0.8, 0, 0, 0)
+        removeBtn.BackgroundTransparency = 1
+        removeBtn.Text = "×"
+        removeBtn.Font = Enum.Font.GothamBold
+        removeBtn.TextColor3 = PrimaryRed
+        removeBtn.TextSize = 14
+        
+        removeBtn.MouseButton1Click:Connect(function()
+            TixSettings.Friends[username] = nil
+            refreshFriendList()
+            warningLabel.Visible = false
+        end)
+    end
+end
+
+addFriendBtn.MouseButton1Click:Connect(function()
+    local name = friendInput.Text:gsub("^%s+", ""):gsub("%s+$", "")
+    if name == "" then return end
+    
+    local count = 0
+    for _ in pairs(TixSettings.Friends) do count = count + 1 end
+    if count >= 5 then
+        warningLabel.Text = "Max 5 friends allowed!"
+        warningLabel.Visible = true
+        return
+    end
+    
+    if TixSettings.Friends[name] then
+        warningLabel.Text = "Already in list!"
+        warningLabel.Visible = true
+        return
+    end
+    
+    TixSettings.Friends[name] = true
+    friendInput.Text = ""
+    refreshFriendList()
+    warningLabel.Visible = false
+end)
+
+refreshFriendList()
+
+-- ========== COLLAPSIBLE SECTIONS ==========
+local function CreateCollapsible(title, parent)
+    local header = Instance.new("TextButton", parent)
+    header.Size = UDim2.new(1, -5, 0, 30)
+    header.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+    header.Text = ""
+    header.AutoButtonColor = false
+    Instance.new("UICorner", header)
+    
+    local headerLabel = Instance.new("TextLabel", header)
+    headerLabel.Size = UDim2.new(0.8, -10, 1, 0)
+    headerLabel.Position = UDim2.new(0, 10, 0, 0)
+    headerLabel.BackgroundTransparency = 1
+    headerLabel.Text = title
+    headerLabel.Font = Enum.Font.GothamBold
+    headerLabel.TextColor3 = PrimaryRed
+    headerLabel.TextSize = 13
+    headerLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local arrow = Instance.new("TextLabel", header)
+    arrow.Name = "Arrow"
+    arrow.Size = UDim2.new(0, 20, 1, 0)
+    arrow.Position = UDim2.new(1, -25, 0, 0)
+    arrow.BackgroundTransparency = 1
+    arrow.Text = ">"
+    arrow.Font = Enum.Font.GothamBold
+    arrow.TextColor3 = PrimaryRed
+    arrow.TextSize = 16
+    arrow.TextXAlignment = Enum.TextXAlignment.Center
+    
+    local expanded = false
+    local container = Instance.new("Frame", parent)
+    container.Size = UDim2.new(1, -5, 0, 0)
+    container.BackgroundTransparency = 1
+    container.Visible = false
+    container.ClipsDescendants = true
+    
+    local containerList = Instance.new("UIListLayout", container)
+    containerList.Padding = UDim.new(0, 4)
+    
+    local function updateContainerSize()
+        local h = 0
+        for _, child in ipairs(container:GetChildren()) do
+            if child:IsA("Frame") or child:IsA("TextButton") then
+                h = h + child.Size.Y.Offset + 4
+            end
+        end
+        container.Size = UDim2.new(1, -5, 0, h)
+    end
+    
+    header.MouseButton1Click:Connect(function()
+        expanded = not expanded
+        arrow.Text = expanded and "v" or ">"
+        container.Visible = expanded
+        if expanded then
+            updateContainerSize()
+        end
+    end)
+    
+    return {
+        Header = header,
+        Container = container,
+        Update = updateContainerSize
+    }
+end
+
+-- ========== BUILD MENU ==========
+AddToggle("Aim Bot", "Sticky")
+AddToggle("Wall Check", "WallCheck")
+AddToggle("Team Check", "TeamCheck")
+AddToggle("Closest Target", "Closest")
+
+local visCol = CreateCollapsible("--- VISUAL ---", Scroll)
+AddToggle("Visual ESP", "ESP", visCol.Container)
+AddToggle("Rainbow Mode", "RainbowStyle", visCol.Container)
+AddToggle("Show FOV", "CircleVis", visCol.Container)
+AddToggle("Name Tags", "NameTags", visCol.Container)
+AddSlider("FOV Radius", "FOV", 10, 200, 200, visCol.Container)
+
+local hbCol = CreateCollapsible("--- HITBOX ---", Scroll)
+AddToggle("Hitbox", "HitboxEnabled", hbCol.Container)
+AddSlider("Hitbox Size", "HitboxSize", 1, 5, 3.3, hbCol.Container)
+
+AddDistanceSlider()
+AddDropdown("Aim Mode", "AimMode", {"Toggle", "Hold", "Auto"})
+AddKeybind("Toggle Key", "AimKey")
+
+-- ========== FUNCTIONS ==========
+
+local function isFriend(targetCharacter)
+    local player = Players:GetPlayerFromCharacter(targetCharacter)
+    if not player then return false end
+    
+    for friendName in pairs(TixSettings.Friends) do
+        if player.Name:lower() == friendName:lower() or player.DisplayName:lower() == friendName:lower() then
+            return true
+        end
+    end
+    return false
+end
+
+local function createHitbox(player)
+    if hitboxParts[player] then return end
+    if not player.Character then return end
+    
+    local head = player.Character:FindFirstChild("Head")
+    if not head then return end
+    
+    local size = TixSettings.HitboxSize
+    
+    local hitbox = Instance.new("Part")
+    hitbox.Name = "KuzeyHitbox"
+    hitbox.Size = Vector3.new(size, size, size)
+    hitbox.Transparency = 1
+    hitbox.CanCollide = false
+    hitbox.CanQuery = false
+    hitbox.CanTouch = false
+    hitbox.Massless = true
+    hitbox.Anchored = false
+    hitbox.Parent = player.Character
+    
+    local weld = Instance.new("Weld")
+    weld.Name = "KuzeyHitboxWeld"
+    weld.Part0 = head
+    weld.Part1 = hitbox
+    weld.C0 = CFrame.new(0, 0, 0)
+    weld.Parent = hitbox
+    
+    hitboxParts[player] = hitbox
+end
+
+local function updateHitboxes()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        
+        if hitboxParts[player] and (not player.Character or not hitboxParts[player].Parent or hitboxParts[player].Parent ~= player.Character) then
+            local old = hitboxParts[player]
+            hitboxParts[player] = nil
+            pcall(function() old:Destroy() end)
+        end
+        
+        if not player.Character then continue end
+        
+        if TixSettings.HitboxEnabled then
+            if not hitboxParts[player] then
+                createHitbox(player)
+            end
+            if hitboxParts[player] then
+                local size = TixSettings.HitboxSize
+                hitboxParts[player].Size = Vector3.new(size, size, size)
+            end
+        else
+            if hitboxParts[player] then
+                local old = hitboxParts[player]
+                hitboxParts[player] = nil
+                pcall(function() old:Destroy() end)
+            end
+        end
+    end
+end
+
+local function canSeeTarget(targetPart)
+    if not TixSettings.WallCheck then return true end
+    
+    local origin = Camera.CFrame.Position
+    local direction = (targetPart.Position - origin)
+    local maxDist = direction.Magnitude
+    direction = direction.Unit * maxDist
+    
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+    params.FilterDescendantsInstances = {LocalPlayer.Character}
+    params.IgnoreWater = true
+    
+    local result = workspace:Raycast(origin, direction, params)
+    
+    if not result then return true end
+    
+    local hit = result.Instance
+    if hit then
+        local hitChar = hit:FindFirstAncestorWhichIsA("Model")
+        if hitChar then
+            if hitChar == targetPart.Parent then return true end
+            if hitChar:FindFirstChild("KuzeyHitbox") then return true end
+        end
+    end
+    
+    return false
+end
+
+local function getTargetPart(player)
+    if not player.Character then return nil end
+    
+    if TixSettings.HitboxEnabled and hitboxParts[player] and hitboxParts[player].Parent == player.Character then
+        return hitboxParts[player]
+    end
+    return player.Character:FindFirstChild("Head") or player.Character:FindFirstChild("HumanoidRootPart")
+end
+
+local function getClosest()
+    local target, shortestFOV = nil, TixSettings.FOV
+    local camPos = Camera.CFrame.Position
+    local maxDist = TixSettings.MaxDistance
+    local mousePos = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    
+    if TixSettings.Closest then
+        local closestDist = math.huge
+        for _, v in pairs(Players:GetPlayers()) do
+            if v == LocalPlayer then continue end
+            if not v.Character then continue end
+            
+            if hitboxParts[v] and (not hitboxParts[v].Parent or hitboxParts[v].Parent ~= v.Character) then
+                local old = hitboxParts[v]
+                hitboxParts[v] = nil
+                pcall(function() old:Destroy() end)
+            end
+            
+            local humanoid = v.Character:FindFirstChild("Humanoid")
+            if not humanoid then continue end
+            
+            if isFriend(v.Character) then continue end
+            if TixSettings.TeamCheck and v.Team == LocalPlayer.Team then continue end
+            
+            local targetPart = getTargetPart(v)
+            if not targetPart then continue end
+            
+            local dist = (targetPart.Position - camPos).Magnitude
+            if dist > maxDist then continue end
+            
+            if not canSeeTarget(targetPart) then continue end
+            
+            if dist < closestDist then
+                closestDist = dist
+                target = targetPart
+            end
+        end
+        return target
+    end
+    
+    for _, v in pairs(Players:GetPlayers()) do
+        if v == LocalPlayer then continue end
+        if not v.Character then continue end
+        
+        if hitboxParts[v] and (not hitboxParts[v].Parent or hitboxParts[v].Parent ~= v.Character) then
+            local old = hitboxParts[v]
+            hitboxParts[v] = nil
+            pcall(function() old:Destroy() end)
+        end
+        
+        local humanoid = v.Character:FindFirstChild("Humanoid")
+        if not humanoid then continue end
+        
+        if isFriend(v.Character) then continue end
+        if TixSettings.TeamCheck and v.Team == LocalPlayer.Team then continue end
+        
+        local targetPart = getTargetPart(v)
+        if not targetPart then continue end
+        
+        local dist = (targetPart.Position - camPos).Magnitude
+        if dist > maxDist then continue end
+        
+        if not canSeeTarget(targetPart) then continue end
+        
+        local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+        if not onScreen then continue end
+        
+        local mag = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+        if mag < shortestFOV then 
+            target = targetPart
+            shortestFOV = mag
+        end
+    end
+    
+    return target
+end
+
+-- ========== LOCKED TARGET ==========
+local LockedTarget = nil
+
+-- AIM MODE LOGIC
+local aimActive = false
+local autoMode = false
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    local key = TixSettings.AimKey
+    local match = false
+    
+    if typeof(key) == "EnumItem" and key.EnumType == Enum.KeyCode then
+        if input.KeyCode == key then match = true end
+    elseif typeof(key) == "EnumItem" and key.EnumType == Enum.UserInputType then
+        if input.UserInputType == key then match = true end
+    end
+    
+    if match then
+        if TixSettings.AimMode == "Toggle" then
+            aimActive = not aimActive
+            if not aimActive then LockedTarget = nil end
+        elseif TixSettings.AimMode == "Hold" then
+            aimActive = true
+        elseif TixSettings.AimMode == "Auto" then
+            autoMode = not autoMode
+            aimActive = autoMode
+            if not aimActive then LockedTarget = nil end
+        end
+        
+        local status = aimActive and "ACIK" or "KAPALI"
+        if not TixUI:FindFirstChild("StatusLabel") then
+            local sl = Instance.new("TextLabel", TixUI)
+            sl.Name = "StatusLabel"
+            sl.Size = UDim2.new(0, 180, 0, 25)
+            sl.Position = UDim2.new(0, 10, 1, -35)
+            sl.BackgroundTransparency = 1
+            sl.Font = Enum.Font.GothamBold
+            sl.TextColor3 = PrimaryRed
+            sl.TextSize = 14
+            sl.Text = "AIM: " .. status
+        else
+            TixUI.StatusLabel.Text = "AIM: " .. status
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if TixSettings.AimMode == "Hold" then
+        local key = TixSettings.AimKey
+        local match = false
+        
+        if typeof(key) == "EnumItem" and key.EnumType == Enum.KeyCode then
+            if input.KeyCode == key then match = true end
+        elseif typeof(key) == "EnumItem" and key.EnumType == Enum.UserInputType then
+            if input.UserInputType == key then match = true end
+        end
+        
+        if match then
+            aimActive = false
+            LockedTarget = nil
+            if TixUI:FindFirstChild("StatusLabel") then
+                TixUI.StatusLabel.Text = "AIM: KAPALI"
+            end
+        end
+    end
+end)
+
+-- MAIN LOOP
+RunService.RenderStepped:Connect(function()
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("Humanoid") or LocalPlayer.Character.Humanoid.Health <= 0 then
+        for char, visual in pairs(visualCache) do
+            if visual.High then
+                visual.High:Destroy()
+            end
+            if visual.NameTag then
+                visual.NameTag:Destroy()
+            end
+        end
+        visualCache = {}
+        return
+    end
+
+    local accent = TixSettings.RainbowStyle and getRainbow() or PrimaryRed
+
+    Circle.Radius = TixSettings.FOV
+    Circle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    Circle.Color = accent
+    MainStroke.Color = accent
+    ToggleStroke.Color = accent
+    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Circle.Visible = TixSettings.CircleVis
+
+    if TixSettings.AimMode == "Auto" and autoMode then
+        aimActive = true
+    end
+
+    updateHitboxes()
+
+    -- LOCKED TARGET (FOV kontrolü yok)
+    if TixSettings.Sticky and aimActive then
+        local targetToAim = nil
+
+        if LockedTarget then
+            local valid = false
+            if LockedTarget and LockedTarget.Parent and LockedTarget.Parent:IsA("Model") then
+                local player = Players:GetPlayerFromCharacter(LockedTarget.Parent)
+                if player and player ~= LocalPlayer then
+                    local humanoid = LockedTarget.Parent:FindFirstChild("Humanoid")
+                    if humanoid and humanoid.Health > 0 then
+                        local dist = (LockedTarget.Position - Camera.CFrame.Position).Magnitude
+                        if dist <= TixSettings.MaxDistance then
+                            if canSeeTarget(LockedTarget) then
+                                valid = true
+                            end
+                        end
+                    end
+                end
+            end
+
+            if valid then
+                targetToAim = LockedTarget
+            else
+                LockedTarget = nil
+            end
+        end
+
+        if not LockedTarget then
+            local newTarget = getClosest()
+            if newTarget then
+                LockedTarget = newTarget
+                targetToAim = newTarget
+            end
+        end
+
+        if targetToAim then
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetToAim.Position)
+        end
+    else
+        LockedTarget = nil
+    end
+
+    -- ESP & Nametags
+    for _, p in pairs(Players:GetPlayers()) do 
+        if p ~= LocalPlayer then
+            local char = p.Character
+            local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+            
+            if not char or not humanoid or humanoid.Health <= 0 then
+                if visualCache[char] then
+                    if visualCache[char].High then
+                        visualCache[char].High:Destroy()
+                    end
+                    if visualCache[char].NameTag then
+                        visualCache[char].NameTag:Destroy()
+                    end
+                    visualCache[char] = nil
+                end
+            else
+                local isF = isFriend(char)
+                
+                if not visualCache[char] then
+                    local high = Instance.new("Highlight")
+                    high.Adornee = char
+                    high.Parent = TixUI
+                    
+                    local nameTag = Instance.new("BillboardGui")
+                    nameTag.Name = "NameTag"
+                    nameTag.Adornee = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+                    nameTag.Size = UDim2.new(0, 120, 0, 30)
+                    nameTag.StudsOffset = Vector3.new(0, 2.5, 0)
+                    nameTag.Parent = TixUI
+                    nameTag.AlwaysOnTop = true
+                    nameTag.MaxDistance = 700
+                    
+                    local nameLabel = Instance.new("TextLabel", nameTag)
+                    nameLabel.Size = UDim2.new(1, 0, 1, 0)
+                    nameLabel.BackgroundTransparency = 1
+                    nameLabel.Text = p.DisplayName or p.Name
+                    nameLabel.Font = Enum.Font.GothamBold
+                    nameLabel.TextSize = 14
+                    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+                    nameLabel.TextStrokeTransparency = 0.3
+                    nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+                    
+                    visualCache[char] = {High = high, NameTag = nameTag}
+                end
+                
+                local visual = visualCache[char]
+                if visual then
+                    if visual.High then
+                        visual.High.Enabled = TixSettings.ESP and char:FindFirstChild("Head") ~= nil
+                        visual.High.Adornee = char
+                        if isF then
+                            visual.High.FillColor = GreenColor
+                        else
+                            visual.High.FillColor = accent
+                        end
+                        visual.High.OutlineColor = Color3.new(1, 1, 1)
+                    end
+                    
+                    if visual.NameTag then
+                        visual.NameTag.Enabled = TixSettings.NameTags
+                        local head = char:FindFirstChild("Head")
+                        visual.NameTag.Adornee = head or char:FindFirstChild("HumanoidRootPart")
+                        if head then
+                            visual.NameTag.StudsOffset = Vector3.new(0, 2.5, 0)
+                        else
+                            visual.NameTag.StudsOffset = Vector3.new(0, 1, 0)
+                        end
+                        
+                        local nameLabel = visual.NameTag:FindFirstChildOfClass("TextLabel")
+                        if nameLabel then
+                            nameLabel.Text = p.DisplayName or p.Name
+                            if isF then
+                                nameLabel.TextColor3 = GreenColor
+                            else
+                                nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+                            end
+                        end
+                    end
+                end
+            end
+        end 
+    end
+end)
